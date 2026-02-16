@@ -1,0 +1,226 @@
+meta:
+  spec_id: agentic_video_rag
+  spec_version: 1.0.0
+  source_spec: design/spec_groundtruth.md
+  generated_on: 2026-02-16
+
+stage_catalog:
+  stage_1: activity_ingestion
+  stage_2: temporal_retrieval
+  stage_3: spatial_grounding
+  stage_4: entity_resolution
+  stage_5: temporal_localization
+  stage_6: graph_memory
+  stage_7: multimodal_synthesis
+
+registry:
+  models:
+    qwen3_30b_a3b_thinking:
+      provider: qwen
+      role: orchestrator_phase_1
+      modality: text
+    kimi_k2_5:
+      provider: kimi
+      role: orchestrator_phase_2
+      modality: text
+    qwen3_vl:
+      provider: qwen
+      role: multimodal_synthesizer
+      modality: multimodal
+    siglip2:
+      provider: siglip
+      role: frame_embedding
+      modality: image_text
+    internvideo_next:
+      provider: internvideo
+      role: video_backbone
+      modality: video
+    ivnext_lit_text_head:
+      provider: custom
+      role: alignment_text_head
+      modality: text
+    sam3:
+      provider: sam
+      role: segmentation_tracking
+      modality: image_video
+    dinov3_vit_b16:
+      provider: dino
+      role: object_reid
+      modality: image
+    person_reid_embedder:
+      provider: custom
+      role: person_reid
+      modality: image
+    cv_state:
+      provider: custom
+      role: static_trigger
+      modality: image
+    bg_motion_trigger:
+      provider: custom
+      role: moving_background_trigger
+      modality: video
+
+  datastores:
+    milvus:
+      datastore_type: vector_db
+      engine: Milvus
+    neo4j_or_falkordb:
+      datastore_type: graph_db
+      engine: Neo4j_or_FalkorDB
+    feature_cache:
+      datastore_type: cache
+      engine: tiered_cache
+    evidence_store:
+      datastore_type: artifact_store
+      engine: filesystem_or_s3
+
+  resources:
+    frame_index_siglip2:
+      datastore_id: milvus
+      resource_type: vector_collection
+    window_index_ivnext:
+      datastore_id: milvus
+      resource_type: vector_collection
+    cache_l1_ivnext:
+      datastore_id: feature_cache
+      resource_type: cache_level
+    cache_l2_foreground:
+      datastore_id: feature_cache
+      resource_type: cache_level
+    ekg_graph:
+      datastore_id: neo4j_or_falkordb
+      resource_type: graph
+    evidence_overlays:
+      datastore_id: evidence_store
+      resource_type: artifact_bundle
+
+constants:
+  retrieval:
+    stage2_initial_top_k_windows: 120
+    stage2_validated_top_k_windows: 16
+    stage2_min_validation_confidence: 0.50
+  grounding:
+    sam3_min_mask_confidence: 0.45
+    sam3_retry_max_attempts: 2
+  reid:
+    object_reid_min_similarity: 0.72
+    person_reid_min_similarity: 0.68
+    max_cross_camera_travel_seconds: 300
+  temporal_localization:
+    smoothing_method: savitzky_golay
+    smoothing_window_size: 9
+    hysteresis_high: 0.62
+    hysteresis_low: 0.48
+
+phase_a:
+  orchestration:
+    framework: LangGraph
+    orchestrator_models:
+      phase_1: qwen3_30b_a3b_thinking
+      phase_2: kimi_k2_5
+    required_state_keys:
+      - query_id
+      - normalized_query
+      - candidate_windows
+      - grounded_tracks
+      - entity_links
+      - temporal_segments
+      - evidence_package
+    branching_hooks:
+      - low_retrieval_confidence
+      - low_mask_confidence
+      - identity_ambiguity
+      - missing_evidence
+
+phase_b:
+  stages:
+    - stage_id: stage_1
+      stage_name: ${stage_catalog.stage_1}
+      depends_on: []
+      models:
+        - siglip2
+        - cv_state
+        - bg_motion_trigger
+      reads:
+        - raw_video_stream
+        - camera_metadata_stream
+        - optional_audio_stream
+      writes:
+        - frame_index_siglip2
+
+    - stage_id: stage_2
+      stage_name: ${stage_catalog.stage_2}
+      depends_on:
+        - stage_1
+      models:
+        - siglip2
+        - internvideo_next
+        - ivnext_lit_text_head
+      reads:
+        - frame_index_siglip2
+        - cache_l1_ivnext
+      writes:
+        - cache_l1_ivnext
+        - window_index_ivnext
+
+    - stage_id: stage_3
+      stage_name: ${stage_catalog.stage_3}
+      depends_on:
+        - stage_2
+      models:
+        - sam3
+      reads:
+        - cache_l1_ivnext
+      writes:
+        - cache_l2_foreground
+        - evidence_overlays
+
+    - stage_id: stage_4
+      stage_name: ${stage_catalog.stage_4}
+      depends_on:
+        - stage_3
+      models:
+        - dinov3_vit_b16
+        - person_reid_embedder
+      reads:
+        - cache_l2_foreground
+        - evidence_overlays
+      writes:
+        - ekg_graph
+
+    - stage_id: stage_5
+      stage_name: ${stage_catalog.stage_5}
+      depends_on:
+        - stage_3
+        - stage_4
+      models:
+        - ivnext_lit_text_head
+      reads:
+        - cache_l1_ivnext
+        - cache_l2_foreground
+      writes:
+        - ekg_graph
+
+    - stage_id: stage_6
+      stage_name: ${stage_catalog.stage_6}
+      depends_on:
+        - stage_4
+        - stage_5
+      models: []
+      reads:
+        - ekg_graph
+        - evidence_overlays
+      writes:
+        - ekg_graph
+
+    - stage_id: stage_7
+      stage_name: ${stage_catalog.stage_7}
+      depends_on:
+        - stage_6
+      models:
+        - qwen3_vl
+      reads:
+        - ekg_graph
+        - evidence_overlays
+      writes:
+        - synthesized_response

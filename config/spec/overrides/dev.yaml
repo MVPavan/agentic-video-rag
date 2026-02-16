@@ -1,0 +1,13 @@
+constants:
+  retrieval:
+    stage2_validated_top_k_windows: 12
+    stage2_min_validation_confidence: 0.55
+
+phase_a:
+  orchestration:
+    branching_hooks:
+      - low_retrieval_confidence
+      - low_mask_confidence
+      - identity_ambiguity
+      - missing_evidence
+      - debug_force_safe_mode

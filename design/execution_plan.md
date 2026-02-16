@@ -126,27 +126,27 @@ Implementation should follow this dependency chain:
 |---|---|---|---|---|---|---|
 | `M0.1` | `done` | `tbd` | `2026-02-16` | `2026-02-16` | `2026-02-16` | SSOT and agent governance are present. |
 | `M0.2` | `done` | `tbd` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Tracking section moved into dedicated execution plan file. |
-| `M1.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M1.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M1.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M2.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M2.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M2.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M3.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M3.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M3.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M4.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M4.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M4.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M5.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M5.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M5.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M6.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M6.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M6.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M7.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M7.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M7.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M8.1` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M8.2` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
-| `M8.3` | `not_started` | `tbd` | `tbd` | `tbd` | `tbd` |  |
+| `M1.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Canonical YAML schema, strict Pydantic models, and stage-catalog validation implemented. |
+| `M1.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | OmegaConf base+override merge path implemented with deterministic merge tests. |
+| `M1.3` | `done` | `codex` | `2026-02-16` | `2026-02-17` | `2026-02-16` | Added orchestration runtime with validated transitions and branching hooks. |
+| `M2.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Stage 1 route framework implemented and verified with all four trigger paths. |
+| `M2.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | SigLIP2-style indexing pipeline implemented with keyframe metadata and embeddings. |
+| `M2.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Stage 2 calibrated retrieval implemented with L1 cache and deterministic re-ranking tests. |
+| `M3.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | SAM3-style grounding and tracklet generation implemented with confidence gating. |
+| `M3.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Grounding retry + detector/tracker fallback implemented and validated under high threshold override. |
+| `M3.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Overlay artifact persistence and references implemented for all emitted tracklets. |
+| `M4.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Object/vehicle entity clustering implemented with stable ObjectCluster IDs. |
+| `M4.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Person ReID linking implemented with topology/time fusion. |
+| `M4.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Ambiguous identity handling implemented with unresolved state and reduced confidence. |
+| `M5.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | L2-first/L1-fallback temporal feature path implemented and tested. |
+| `M5.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Similarity-curve smoothing and hysteresis boundary extraction implemented with stability checks. |
+| `M5.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Failure-flag surfacing implemented (`low_mask_confidence`, `low_similarity`, `multi_actor_ambiguity`). |
+| `M6.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Graph node upsert contracts implemented for entity, camera, and track nodes. |
+| `M6.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Temporal `EXITS` and `MOVES_TO` edge construction implemented with confidence metadata. |
+| `M6.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Evidence attachment implemented with clip/frame/overlay/embedding references per edge. |
+| `M7.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Structured claim-level evidence package generated from graph edges. |
+| `M7.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Grounded synthesis implemented with claim-to-evidence linkage checks. |
+| `M7.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Conservative fallback implemented for evidence-insufficient outputs. |
+| `M8.1` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Canonical red SUV E2E regression passes with cross-camera person tracking claims. |
+| `M8.2` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Stage latency + cache hit metrics implemented and validated against test thresholds. |
+| `M8.3` | `done` | `codex` | `2026-02-16` | `2026-02-16` | `2026-02-16` | Ops runbook, limitations, rollback notes, release checklist, and root README onboarding guide authored. |
