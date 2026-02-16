@@ -1,0 +1,292 @@
+# Agentic Video RAG (Updated Spec v2)
+
+A 7-stage agentic Video RAG for complex “in-the-wild” object + activity queries with **visual + temporal grounding**
+---
+
+## Phase 0: Models and Modifications (Single Source of Truth)
+
+### Orchestration / Reasoning
+
+* **Orchestrator LLM (Phase 1):** `Qwen3-30B-A3B-Thinking`
+* **Orchestrator LLM (Phase 2):** `Kimi K2.5`
+* **Multimodal Synthesizer:** `Qwen3-VL` (or `Qwen3.5-VL` / `Qwen3.5-VL-32B` if available in your deployment)
+
+### Retrieval (Image ↔ Text)
+
+* **Frame Embedding Model:** `SigLIP2` (full-frame embeddings for keyframes)
+
+### Video Understanding + Alignment (Core)
+
+* **Video Backbone (Frozen):** `InternVideo-Next`
+* **Text Encoder Head (Trainable):** `IVNext-LiT-TextHead`
+
+  * **Training:** LiT-style contrastive training against the **frozen** IV-Next video backbone
+  * **Initialization (recommended):** initialize the text encoder (or its projection stack) from **SigLIP2’s text encoder weights** (instead of MobileCLIP) to maximize shared embedding geometry
+  * **Output:** produces query embeddings that are *calibrated* to IV-Next clip/per-timestep features
+
+### Spatial Grounding + Tracking
+
+* **Segment + Track Model:** `SAM 3` (promptable concept segmentation; outputs spatio-temporal masklets)
+
+### Entity Resolution (ReID)
+
+* **General Object / Vehicle ReID Encoder:** `DINOv3 (ViT-B/16)` (frozen)
+* **Person ReID Encoder (dedicated):** `PersonReID-Embedder` (metric-learned, cross-camera)
+
+  * Could be any strong ReID model in your stack; the key is it’s **trained for ReID**, not generic self-supervised features.
+
+### Triggers / Ingestion (Lightweight)
+
+* **Static CCTV activity trigger:** `CV-State` (RMSE/SSIM thresholding + heuristics)
+* **Moving-background trigger:** `BG-Motion-Trigger` (defined component)
+
+  * A lightweight classifier (e.g., flow statistics + tiny CNN/ViT) trained to detect “meaningful activity vs background motion”
+
+### Datastores
+
+* **Vector DB:** `Milvus`
+* **Graph DB:** `Neo4j` or `FalkorDB`
+* **Cache:** `FeatureCache` (tiered: L1 pooled, L2 token-slices)
+
+> All model names above are referenced by identifier in the pipeline below.
+
+---
+
+## Phase A: Orchestration & Memory
+
+### Databases
+
+* **Milvus**
+
+  * `FrameIndex_SigLIP2`: keyframe embeddings + metadata
+  * *(optional)* `WindowIndex_IVNext`: per-window pooled embeddings for faster re-ranking
+* **Event Knowledge Graph (EKG):** `Neo4j / FalkorDB`
+
+  * Stores entities, tracks, events, timestamps, confidence, and camera topology.
+
+### Orchestrator
+
+* **LangGraph** state machine wrapping the orchestrator LLM:
+
+  * manages branching (triggers, retrieval depth, retries)
+  * enforces durable state (so multi-step queries don’t lose evidence)
+
+### FeatureCache (explicit)
+
+* **L1 Cache (default):** per-window **per-timestep pooled** IV-Next features (T×D) + per-window pooled (D)
+* **L2 Cache (conditional):** **foreground token slices / token grids** only for windows that pass Stage 3 (segmentation succeeds)
+* TTL + eviction policy + versioning keyed by (model_version, clip_id, window, fps, resize)
+
+---
+
+## Phase B: Execution Pipeline (7 Stages)
+
+### Stage 1: 4-Path Activity Ingestion & Indexing (Adaptive)
+
+Route incoming video through one of four triggers to locate active windows:
+
+1. **Meta-Sync**
+
+* Use pre-existing metadata (bboxes/motion vectors) to define active windows.
+* Skip heavy compute.
+
+2. **Sig-Ex Adaptive** (for vlogs/bodycams/unpredictable footage)
+
+* Base sampling: 1 FPS
+* **Burst sampling** around:
+
+  * motion peaks
+  * scene cuts
+  * audio peaks (optional)
+* Goal: avoid missing short “exit/drop/hand over” actions.
+
+3. **CV-State** (static CCTV)
+
+* RMSE/SSIM thresholding to identify active windows
+* Debounce + illumination flicker guards
+
+4. **BG-Motion-Trigger** (outdoor CCTV with moving backgrounds)
+
+* Lightweight classifier to separate background motion (trees/rain) vs meaningful activity
+
+**Action (common)**
+
+* Sample keyframes from active windows
+* Compute **SigLIP2** full-frame embeddings
+* Store in `Milvus.FrameIndex_SigLIP2`
+
+---
+
+### Stage 2: Coarse Temporal Retrieval + Re-ranking (Calibrated, Not “Proof”)
+
+**2.1 Search**
+
+* Query `Milvus.FrameIndex_SigLIP2` with text → candidate keyframes/windows
+
+**2.2 Video feature extraction**
+
+* For each candidate window:
+
+  * run **InternVideo-Next (frozen)** on the clip
+  * cache **L1** features:
+
+    * per-window pooled embedding (D)
+    * per-timestep pooled embeddings (T×D)
+
+**2.3 LiT-style calibrated scoring**
+
+* Encode query text via **IVNext-LiT-TextHead**
+* Score each window using:
+
+  * window pooled similarity (coarse)
+  * per-timestep similarity (for early temporal cues)
+* Output: top-K “validated” windows + confidence + candidate time range
+
+*(Optional)* Store pooled window vectors in `Milvus.WindowIndex_IVNext` to speed up future re-ranking.
+
+---
+
+### Stage 3: Spatial Grounding & Tracking
+
+**Input:** validated clip window + query text
+**Model:** `SAM 3`
+
+**Action**
+
+* Prompt SAM3 with query concept(s)
+* Output:
+
+  * spatio-temporal **masklets**
+  * track IDs
+  * per-frame mask confidence
+* If SAM3 fails (low confidence), branch:
+
+  * retry with query decomposition (agentic: “red SUV” then “person exiting”)
+  * or fallback to detector+tracker if available in your stack
+
+---
+
+### Stage 4: Cross-Clip Entity Resolution (Split ReID)
+
+**4A — Vehicle/Object ReID**
+
+* Compute **DINOv3 (ViT-B/16)** embeddings on foreground-weighted crops:
+
+  * prefer **mask-weighted pooling** over “delete background entirely” (background = downweighted, not zero)
+* Cluster across cameras:
+
+  * cosine similarity + clustering algorithm (e.g., HDBSCAN/DBSCAN)
+* Output: `ObjectClusterID` (e.g., SUV_Cluster_17)
+
+**4B — Person ReID**
+
+* Use `PersonReID-Embedder` on person track crops (mask-weighted)
+* Fuse:
+
+  * embedding similarity
+  * camera topology constraints (adjacent cameras, travel time)
+  * temporal overlap constraints
+* Output: `PersonEntityID` with cross-camera confidence
+
+---
+
+### Stage 5: Fine Temporal Grounding (Explicit Temporal Localization)
+
+**Goal:** produce precise `t_start, t_end` for the action (e.g., “got out”, “dropped”, “handed over”).
+
+**Inputs**
+
+* L1 cached **per-timestep pooled** IV-Next features (T×D)
+* SAM3 masklets/tracks
+* Query text (possibly decomposed)
+
+**Actions**
+
+1. **Foreground feature isolation**
+
+* If L2 token slices exist: apply downsampled mask to token grid and pool per timestep
+* Else: use track-aligned pooling on available features/crops
+
+2. **Per-timestep similarity curve**
+
+* Encode action text via `IVNext-LiT-TextHead`
+* Compute similarity for each timestep → curve S(t)
+
+3. **Boundary extraction**
+
+* Smooth S(t) (EMA/Savitzky-Golay)
+* Apply hysteresis thresholds to get contiguous segments
+* Output:
+
+  * `t_start, t_end`
+  * confidence
+  * failure mode flags (occlusion, low mask confidence, multi-actor ambiguity)
+
+*(Optional)* tiny verb classifier over track features for common confusions (“drop” vs “hold”, “enter” vs “exit”).
+
+---
+
+### Stage 6: Dynamic Memory Construction (EKG with Evidence + Uncertainty)
+
+Write to `Neo4j/FalkorDB`:
+
+**Nodes**
+
+* `ObjectClusterID` (vehicle/object)
+* `PersonEntityID`
+* `CameraID`
+* `TrackID` (optional)
+* `Zone` (entry/exit zones if modeled)
+
+**Edges (temporal)**
+
+* `PersonEntityID -[EXITS]-> ObjectClusterID {t_start, t_end, confidence, camera_id, evidence_refs}`
+* `PersonEntityID -[MOVES_TO]-> CameraID {time_range, confidence}`
+* Store pointers to:
+
+  * clip IDs
+  * frame ranges
+  * overlay assets (mask/bbox)
+  * embedding ids (for reproducibility)
+
+---
+
+### Stage 7: Multimodal Synthesis (Grounded Answer Generation)
+
+**Model:** `Qwen3-VL` (or your configured multimodal synthesizer)
+
+**Inputs (structured evidence package)**
+
+* EKG subgraph slice relevant to the query
+* Verified raw clips (only those supporting final claims)
+* For each claim:
+
+  * camera_id
+  * `t_start, t_end`
+  * keyframes with overlays (mask/bbox)
+  * track summary + confidence
+  * entity IDs (SUV_Cluster_17, Person_Entity_05)
+
+**Output**
+
+* Natural-language summary with:
+
+  * explicit camera/time references
+  * entity consistency (“the same red SUV” / “the same person”)
+  * optional “Evidence” section (clip/time pointers) for auditability
+
+---
+
+## Example Query Support (Your case)
+
+**Query:** “Find the red SUV, identify the person who got out, and track that specific person across the interior cameras.”
+
+This runs as:
+
+* Stage 2: “red SUV” retrieval → validated exterior windows
+* Stage 3: SAM3 masklets for SUV + person emergence
+* Stage 5: action localization “person exits SUV”
+* Stage 4B: person identity linking to interior cameras using PersonReID + topology/time
+* Stage 7: grounded narrative with camera/time citations
+
+---
